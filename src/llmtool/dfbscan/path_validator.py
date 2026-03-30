@@ -62,31 +62,21 @@ class PathValidator(LLMTool):
         self.memory_agent = memory_agent
         return
 
-    def _bug_type_specific_guidance(self, bug_type: str) -> str:
-        if bug_type != "UAF":
-            return ""
-        return "\n".join(
-            [
-                "UAF-specific rules:",
-                "- The source denotes the released object expression, not the whole free/delete statement.",
-                "- Answer Yes only if the sink is a later use of the same released object or one of its aliases.",
-                "- If the sink dereferences an unrelated pointer/object/field, answer No even if the overall path is otherwise reachable.",
-                "- If the object is replaced, deep-copied, detached, or the code exits/returns on the cleanup branch before the reported sink, answer No.",
-                "- Normal container cleanup, holder cleanup, and error-path free-then-return patterns are not UAF.",
-            ]
-        )
-
     def _get_prompt(self, input: LLMToolInput) -> str:
         if not isinstance(input, PathValidatorInput):
             raise TypeError("expect PathValidatorInput")
         with open(self.prompt_file, "r") as f:
             prompt_template_dict = json.load(f)
+
+        bug_type = input.bug_type
+
         prompt = prompt_template_dict["task"]
-        prompt += "\n" + "\n".join(prompt_template_dict["analysis_rules"])
-        specific_guidance = self._bug_type_specific_guidance(input.bug_type)
-        if specific_guidance:
-            prompt += "\n" + specific_guidance
-        prompt += "\n" + "\n".join(prompt_template_dict["analysis_examples"])
+        prompt += "\n" + "\n".join(prompt_template_dict["analysis_rules_common"])
+        bug_rules = prompt_template_dict["analysis_rules_by_type"].get(bug_type, [])
+        prompt += "\n" + "\n".join(bug_rules)
+        prompt += "\n" + "\n".join(prompt_template_dict["analysis_rules_verdict"])
+        bug_examples = prompt_template_dict["analysis_examples_by_type"].get(bug_type, [])
+        prompt += "\n" + "\n".join(bug_examples)
         prompt += "\n" + "".join(prompt_template_dict["meta_prompts"])
         prompt = prompt.replace(
             "<ANSWER>", "\n".join(prompt_template_dict["answer_format"])
@@ -146,10 +136,12 @@ class PathValidator(LLMTool):
     def _parse_response(
         self, response: str, input: Optional[LLMToolInput] = None
     ) -> Optional[LLMToolOutput]:
-        answer_match = re.search(r"Answer:\s*(\w+)", response)
-        if answer_match:
-            answer = answer_match.group(1).strip()
-            output = PathValidatorOutput(answer == "Yes", response)
+        answer_matches = re.findall(
+            r"Answer:\s*\**\s*(Yes|No)\b", response, re.IGNORECASE
+        )
+        if answer_matches:
+            answer = answer_matches[-1].strip()
+            output = PathValidatorOutput(answer.lower() == "yes", response)
             if self.memory_agent is not None and isinstance(input, PathValidatorInput):
                 self.memory_agent.record_path_validation(
                     input.bug_type,

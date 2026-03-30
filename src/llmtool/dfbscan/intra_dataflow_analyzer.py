@@ -148,11 +148,7 @@ class IntraDataFlowAnalyzer(LLMTool):
         """
         paths: List[Dict] = []
 
-        # Regex to match a path header line, e.g., "Path 1: Lines 2 -> 3"
         path_header_re = re.compile(r"Path\s*(\d+):\s*([^;]+);?$")
-
-        # Regex to match a propagation detail line, e.g.,
-        # "  - Type: Return; Name: getNullObject(); Function: None; Index: 0; Line: 3; Dependency: ..."
         detail_re = re.compile(
             r"Type:\s*([^;]+);\s*"
             r"Name:\s*([^;]+);\s*"
@@ -161,13 +157,15 @@ class IntraDataFlowAnalyzer(LLMTool):
             r"Line:\s*([^;]+);"
         )
 
+        answer_idx = response.find("Answer:")
+        answer_section = response[answer_idx:] if answer_idx != -1 else response
+
         current_path = None
-        for line in response.splitlines():
+        for line in answer_section.splitlines():
             line = line.strip().lstrip("-").strip()
             if not line:
                 continue
 
-            # Check for path header
             header_match = path_header_re.match(line)
             if header_match:
                 if current_path:
@@ -177,10 +175,9 @@ class IntraDataFlowAnalyzer(LLMTool):
                     "execution_path": header_match.group(2).strip(),
                     "propagation_details": [],
                 }
-            else:
-                # Check for propagation detail line
+            elif current_path is not None:
                 detail_match = detail_re.match(line)
-                if detail_match and current_path is not None:
+                if detail_match:
                     detail = {
                         "type": detail_match.group(1).strip(),
                         "name": detail_match.group(2).strip(),
@@ -189,10 +186,6 @@ class IntraDataFlowAnalyzer(LLMTool):
                         "line": detail_match.group(5).strip(),
                     }
                     current_path["propagation_details"].append(detail)
-
-                elif current_path is not None:
-                    paths.append(current_path)
-                    current_path = None
 
         if current_path:
             paths.append(current_path)

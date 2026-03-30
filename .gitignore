@@ -176,3 +176,5 @@ target/**
 result/**
 poc/**
 log/**
+
+*.bak
