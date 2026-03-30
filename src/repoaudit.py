@@ -151,15 +151,31 @@ class RepoAudit:
     def validate_inputs(self) -> Tuple[bool, List[str]]:
         err_messages = []
 
-        # For each scan type, check required parameters.
+        if not os.path.isdir(self.args.project_path):
+            if os.path.isfile(self.args.project_path):
+                err_messages.append(
+                    f"Error: --project-path must be a directory, not a file. "
+                    f"Got: {self.args.project_path}\n"
+                    f"Hint: use the parent directory instead: {os.path.dirname(self.args.project_path)}"
+                )
+            else:
+                err_messages.append(
+                    f"Error: --project-path does not exist: {self.args.project_path}"
+                )
+
         if self.args.scan_type == "dfbscan":
             if not self.args.model_name:
                 err_messages.append("Error: --model-name is required for dfbscan.")
             if not self.args.bug_type:
-                err_messages.append("Error: --bug -type is required for dfbscan.")
-            if self.args.bug_type not in default_dfbscan_checkers[self.args.language]:
-                err_messages.append("Error: Invalid bug type provided.")
+                err_messages.append("Error: --bug-type is required for dfbscan.")
+            elif self.args.bug_type not in default_dfbscan_checkers.get(self.args.language, []):
+                err_messages.append(
+                    f"Error: Invalid bug type '{self.args.bug_type}' for language '{self.args.language}'. "
+                    f"Valid types: {default_dfbscan_checkers.get(self.args.language, [])}"
+                )
         elif self.args.scan_type == "metascan":
+            if err_messages:
+                return (False, err_messages)
             return (True, [])
         else:
             err_messages.append("Error: Unknown scan type provided.")
