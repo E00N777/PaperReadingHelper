@@ -192,14 +192,11 @@ class DFBScanAgent(Agent):
                     )
                     call_site_line_number = -1
                     for call_site_node in call_sites:
-                        file_content = self.ts_analyzer.code_in_files[
-                            function.file_path
-                        ]
-                        call_site_lower_line_number = (
-                            file_content[: call_site_node.start_byte].count("\n") + 1
+                        call_site_lower_line_number = get_node_start_line(
+                            call_site_node
                         )
-                        call_site_upper_line_number = (
-                            file_content[: call_site_node.end_byte].count("\n") + 1
+                        call_site_upper_line_number = get_node_end_line(
+                            call_site_node
                         )
                         arg_line_number_in_file = value.line_number
                         if (
@@ -253,11 +250,8 @@ class DFBScanAgent(Agent):
                         caller_function_file_name = self.ts_analyzer.functionToFile[
                             caller_function.function_id
                         ]
-                        file_content = self.ts_analyzer.code_in_files[
-                            caller_function_file_name
-                        ]
-                        call_site_lower_line_number = (
-                            file_content[: call_site_node.start_byte].count("\n") + 1
+                        call_site_lower_line_number = get_node_start_line(
+                            call_site_node
                         )
 
                         if top_unmatched_context_label is not None:
@@ -311,11 +305,8 @@ class DFBScanAgent(Agent):
                         caller_function_file_name = self.ts_analyzer.functionToFile[
                             caller_function.function_id
                         ]
-                        file_content = self.ts_analyzer.code_in_files[
-                            caller_function_file_name
-                        ]
-                        call_site_lower_line_number = (
-                            file_content[: call_site_node.start_byte].count("\n") + 1
+                        call_site_lower_line_number = get_node_start_line(
+                            call_site_node
                         )
 
                         if top_unmatched_context_label is not None:
@@ -482,12 +473,8 @@ class DFBScanAgent(Agent):
                         file_content = self.ts_analyzer.code_in_files[
                             start_function.file_path
                         ]
-                        call_site_line_number = (
-                            file_content[: call_site_node.start_byte].count("\n") + 1
-                        )
-                        call_site_name = file_content[
-                            call_site_node.start_byte : call_site_node.end_byte
-                        ]
+                        call_site_line_number = get_node_start_line(call_site_node)
+                        call_site_name = get_node_text(file_content, call_site_node)
                         call_statements.append((call_site_name, call_site_line_number))
 
                     ret_values = [
@@ -665,12 +652,8 @@ class DFBScanAgent(Agent):
             call_statements = []
             for call_site_node in start_function.function_call_site_nodes:
                 file_content = self.ts_analyzer.code_in_files[start_function.file_path]
-                call_site_line_number = (
-                    file_content[: call_site_node.start_byte].count("\n") + 1
-                )
-                call_site_name = file_content[
-                    call_site_node.start_byte : call_site_node.end_byte
-                ]
+                call_site_line_number = get_node_start_line(call_site_node)
+                call_site_name = get_node_text(file_content, call_site_node)
                 call_statements.append((call_site_name, call_site_line_number))
 
             ret_values = [

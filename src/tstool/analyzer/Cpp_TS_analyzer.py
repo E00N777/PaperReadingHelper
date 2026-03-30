@@ -22,6 +22,7 @@ class Cpp_TSAnalyzer(TSAnalyzer):
         """
         Parse the function information in a source file.
         """
+        source_bytes = to_source_bytes(source_code)
         for function_definition_node in find_nodes_by_type(
             tree.root_node, "function_definition"
         ):
@@ -31,26 +32,18 @@ class Cpp_TSAnalyzer(TSAnalyzer):
                 function_name = ""
                 for sub_node in function_declaration_node.children:
                     if sub_node.type in {"identifier", "field_identifier"}:
-                        function_name = source_code[
-                            sub_node.start_byte : sub_node.end_byte
-                        ]
+                        function_name = get_node_text(source_bytes, sub_node)
                         break
                     elif sub_node.type == "qualified_identifier":
-                        qualified_function_name = source_code[
-                            sub_node.start_byte : sub_node.end_byte
-                        ]
+                        qualified_function_name = get_node_text(source_bytes, sub_node)
                         function_name = qualified_function_name.split("::")[-1]
                         break
                 if function_name == "":
                     continue
 
                 # Initialize the raw data of a function
-                start_line_number = (
-                    source_code[: function_definition_node.start_byte].count("\n") + 1
-                )
-                end_line_number = (
-                    source_code[: function_definition_node.end_byte].count("\n") + 1
-                )
+                start_line_number = get_node_start_line(function_definition_node)
+                end_line_number = get_node_end_line(function_definition_node)
                 function_id = len(self.functionRawDataDic) + 1
 
                 self.functionRawDataDic[function_id] = (
@@ -72,15 +65,16 @@ class Cpp_TSAnalyzer(TSAnalyzer):
         """
         Parse the global macro information in a source file.
         """
+        source_bytes = to_source_bytes(source_code)
         all_macro_nodes = find_nodes_by_type(tree.root_node, "preproc_def")
         for node in all_macro_nodes:
             macro_name = ""
             macro_definition = ""
             for child in node.children:
                 if child.type == "identifier":
-                    macro_name = source_code[child.start_byte : child.end_byte]
+                    macro_name = get_node_text(source_bytes, child)
                 if child.type == "preproc_arg":
-                    macro_definition = source_code[child.start_byte : child.end_byte]
+                    macro_definition = get_node_text(source_bytes, child)
             if macro_name != "" and macro_definition != "":
                 self.glb_var_map[macro_name] = macro_definition
 
@@ -89,13 +83,13 @@ class Cpp_TSAnalyzer(TSAnalyzer):
             function_name = ""
             for child in node.children:
                 if child.type == "identifier":
-                    function_name = source_code[child.start_byte : child.end_byte]
+                    function_name = get_node_text(source_bytes, child)
                 if child.type == "preproc_params":
-                    function_name += source_code[child.start_byte : child.end_byte]
+                    function_name += get_node_text(source_bytes, child)
             if function_name == "":
                 continue
-            start_line_number = source_code[: node.start_byte].count("\n") + 1
-            end_line_number = source_code[: node.end_byte].count("\n") + 1
+            start_line_number = get_node_start_line(node)
+            end_line_number = get_node_end_line(node)
             function_id = len(self.functionRawDataDic) + 1
 
             self.functionRawDataDic[function_id] = (
@@ -128,8 +122,9 @@ class Cpp_TSAnalyzer(TSAnalyzer):
                 for sub_sub_node in sub_node.children:
                     sub_sub_nodes.append(sub_sub_node)
             break
+        source_bytes = to_source_bytes(source_code)
         sub_sub_node_types = [
-            source_code[sub_sub_node.start_byte : sub_sub_node.end_byte]
+            get_node_text(source_bytes, sub_sub_node)
             for sub_sub_node in sub_sub_nodes
         ]
         if len(sub_sub_node_types) == 0:
@@ -183,15 +178,16 @@ class Cpp_TSAnalyzer(TSAnalyzer):
         arguments: Set[Value] = set([])
         file_name = current_function.file_path
         source_code = self.code_in_files[file_name]
+        source_bytes = to_source_bytes(source_code)
         for sub_node in call_site_node.children:
             if sub_node.type == "argument_list":
                 arg_list = sub_node.children[1:-1]
                 for element in arg_list:
                     if element.type != ",":
-                        line_number = source_code[: element.start_byte].count("\n") + 1
+                        line_number = get_node_start_line(element)
                         arguments.add(
                             Value(
-                                source_code[element.start_byte : element.end_byte],
+                                get_node_text(source_bytes, element),
                                 line_number,
                                 ValueLabel.ARG,
                                 file_name,
@@ -212,14 +208,15 @@ class Cpp_TSAnalyzer(TSAnalyzer):
             return current_function.paras
         current_function.paras = set([])
         file_content = self.code_in_files[current_function.file_path]
+        file_bytes = to_source_bytes(file_content)
         parameters = find_nodes_by_type(
             current_function.parse_tree_root_node, "parameter_declaration"
         )
         index = 0
         for parameter_node in parameters:
             for sub_node in find_nodes_by_type(parameter_node, "identifier"):
-                parameter_name = file_content[sub_node.start_byte : sub_node.end_byte]
-                line_number = file_content[: sub_node.start_byte].count("\n") + 1
+                parameter_name = get_node_text(file_bytes, sub_node)
+                line_number = get_node_start_line(sub_node)
                 current_function.paras.add(
                     Value(
                         parameter_name,
@@ -246,12 +243,13 @@ class Cpp_TSAnalyzer(TSAnalyzer):
 
         current_function.retvals = set([])
         file_content = self.code_in_files[current_function.file_path]
+        file_bytes = to_source_bytes(file_content)
         retnodes = find_nodes_by_type(
             current_function.parse_tree_root_node, "return_statement"
         )
         for retnode in retnodes:
-            line_number = file_content[: retnode.start_byte].count("\n") + 1
-            restmts_str = file_content[retnode.start_byte : retnode.end_byte]
+            line_number = get_node_start_line(retnode)
+            restmts_str = get_node_text(file_bytes, retnode)
             returned_value = restmts_str.replace("return", "").strip()
             current_function.retvals.add(
                 Value(
@@ -270,6 +268,7 @@ class Cpp_TSAnalyzer(TSAnalyzer):
         """
         Identify if-statements in the function.
         """
+        source_bytes = to_source_bytes(source_code)
         if_statement_nodes = find_nodes_by_type(
             function.parse_tree_root_node, "if_statement"
         )
@@ -286,24 +285,18 @@ class Cpp_TSAnalyzer(TSAnalyzer):
 
             for child in if_node.children:
                 if child.type in ["parenthesized_expression", "condition_clause"]:
-                    condition_start_line = (
-                        source_code[: child.start_byte].count("\n") + 1
-                    )
-                    condition_end_line = source_code[: child.end_byte].count("\n") + 1
-                    condition_str = source_code[child.start_byte : child.end_byte]
+                    condition_start_line = get_node_start_line(child)
+                    condition_end_line = get_node_end_line(child)
+                    condition_str = get_node_text(source_bytes, child)
                 if "statement" in child.type:
-                    true_branch_start_line = (
-                        source_code[: child.start_byte].count("\n") + 1
-                    )
-                    true_branch_end_line = source_code[: child.end_byte].count("\n") + 1
+                    true_branch_start_line = get_node_start_line(child)
+                    true_branch_end_line = get_node_end_line(child)
                 if child.type == "else_clause":
-                    else_branch_start_line = (
-                        source_code[: child.start_byte].count("\n") + 1
-                    )
-                    else_branch_end_line = source_code[: child.end_byte].count("\n") + 1
+                    else_branch_start_line = get_node_start_line(child)
+                    else_branch_end_line = get_node_end_line(child)
 
-            if_statement_start_line = source_code[: if_node.start_byte].count("\n") + 1
-            if_statement_end_line = source_code[: if_node.end_byte].count("\n") + 1
+            if_statement_start_line = get_node_start_line(if_node)
+            if_statement_end_line = get_node_end_line(if_node)
             line_scope = (if_statement_start_line, if_statement_end_line)
             info = (
                 condition_start_line,
@@ -323,12 +316,13 @@ class Cpp_TSAnalyzer(TSAnalyzer):
         """
         loop_statements = {}
         root_node = function.parse_tree_root_node
+        source_bytes = to_source_bytes(source_code)
         for_statement_nodes = find_nodes_by_type(root_node, "for_statement")
         while_statement_nodes = find_nodes_by_type(root_node, "while_statement")
 
         for loop_node in for_statement_nodes:
-            loop_start_line = source_code[: loop_node.start_byte].count("\n") + 1
-            loop_end_line = source_code[: loop_node.end_byte].count("\n") + 1
+            loop_start_line = get_node_start_line(loop_node)
+            loop_end_line = get_node_end_line(loop_node)
 
             header_line_start = 0
             header_line_end = 0
@@ -340,23 +334,21 @@ class Cpp_TSAnalyzer(TSAnalyzer):
 
             for child in loop_node.children:
                 if child.type == "(":
-                    header_line_start = source_code[: child.start_byte].count("\n") + 1
+                    header_line_start = get_node_start_line(child)
                     header_start_byte = child.end_byte
                 if child.type == ")":
-                    header_line_end = source_code[: child.end_byte].count("\n") + 1
+                    header_line_end = get_node_end_line(child)
                     header_end_byte = child.start_byte
-                    header_str = source_code[header_start_byte:header_end_byte]
+                    header_str = slice_source_text(
+                        source_bytes, header_start_byte, header_end_byte
+                    )
                 if child.type == "block":
                     lower_lines = []
                     upper_lines = []
                     for sub in child.children:
                         if sub.type not in {"{", "}"}:
-                            lower_lines.append(
-                                source_code[: sub.start_byte].count("\n") + 1
-                            )
-                            upper_lines.append(
-                                source_code[: sub.end_byte].count("\n") + 1
-                            )
+                            lower_lines.append(get_node_start_line(sub))
+                            upper_lines.append(get_node_end_line(sub))
                     if lower_lines and upper_lines:
                         loop_body_start_line = min(lower_lines)
                         loop_body_end_line = max(upper_lines)
@@ -364,10 +356,8 @@ class Cpp_TSAnalyzer(TSAnalyzer):
                         loop_body_start_line = header_line_end
                         loop_body_end_line = header_line_end
                 if "statement" in child.type:
-                    loop_body_start_line = (
-                        source_code[: child.start_byte].count("\n") + 1
-                    )
-                    loop_body_end_line = source_code[: child.end_byte].count("\n") + 1
+                    loop_body_start_line = get_node_start_line(child)
+                    loop_body_end_line = get_node_end_line(child)
             loop_statements[(loop_start_line, loop_end_line)] = (
                 header_line_start,
                 header_line_end,
@@ -377,8 +367,8 @@ class Cpp_TSAnalyzer(TSAnalyzer):
             )
 
         for loop_node in while_statement_nodes:
-            loop_start_line = source_code[: loop_node.start_byte].count("\n") + 1
-            loop_end_line = source_code[: loop_node.end_byte].count("\n") + 1
+            loop_start_line = get_node_start_line(loop_node)
+            loop_end_line = get_node_end_line(loop_node)
 
             header_line_start = 0
             header_line_end = 0
@@ -388,20 +378,16 @@ class Cpp_TSAnalyzer(TSAnalyzer):
 
             for child in loop_node.children:
                 if child.type == "parenthesized_expression":
-                    header_line_start = source_code[: child.start_byte].count("\n") + 1
-                    header_line_end = source_code[: child.end_byte].count("\n") + 1
-                    header_str = source_code[child.start_byte : child.end_byte]
+                    header_line_start = get_node_start_line(child)
+                    header_line_end = get_node_end_line(child)
+                    header_str = get_node_text(source_bytes, child)
                 if "statement" in child.type:
                     lower_lines = []
                     upper_lines = []
                     for sub in child.children:
                         if sub.type not in {"{", "}"}:
-                            lower_lines.append(
-                                source_code[: sub.start_byte].count("\n") + 1
-                            )
-                            upper_lines.append(
-                                source_code[: sub.end_byte].count("\n") + 1
-                            )
+                            lower_lines.append(get_node_start_line(sub))
+                            upper_lines.append(get_node_end_line(sub))
                     if lower_lines and upper_lines:
                         loop_body_start_line = min(lower_lines)
                         loop_body_end_line = max(upper_lines)

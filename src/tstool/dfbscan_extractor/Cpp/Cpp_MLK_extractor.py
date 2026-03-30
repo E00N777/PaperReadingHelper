@@ -12,6 +12,7 @@ class Cpp_MLK_Extractor(DFBScanExtractor):
         """
         root_node = function.parse_tree_root_node
         source_code = self.ts_analyzer.code_in_files[function.file_path]
+        source_bytes = to_source_bytes(source_code)
         file_path = function.file_path
 
         """
@@ -43,13 +44,13 @@ class Cpp_MLK_Extractor(DFBScanExtractor):
             if node.type == "call_expression":
                 for child in node.children:
                     if child.type == "identifier":
-                        name = source_code[child.start_byte : child.end_byte]
+                        name = get_node_text(source_bytes, child)
                         if name in mem_allocations:  # or name in spec_apis:
                             is_seed_node = True
 
             if is_seed_node:
-                line_number = source_code[: node.start_byte].count("\n") + 1
-                name = source_code[node.start_byte : node.end_byte]
+                line_number = get_node_start_line(node)
+                name = get_node_text(source_bytes, node)
                 sources.append(Value(name, line_number, ValueLabel.SRC, file_path))
         return sources
 
@@ -61,6 +62,7 @@ class Cpp_MLK_Extractor(DFBScanExtractor):
         """
         root_node = function.parse_tree_root_node
         source_code = self.ts_analyzer.code_in_files[function.file_path]
+        source_bytes = to_source_bytes(source_code)
         file_path = function.file_path
 
         """
@@ -77,12 +79,12 @@ class Cpp_MLK_Extractor(DFBScanExtractor):
             find_nodes_by_type(node, "argument")
             for child in node.children:
                 if child.type == "identifier":
-                    name = source_code[child.start_byte : child.end_byte]
+                    name = get_node_text(source_bytes, child)
                     if name in mem_deallocations:  # or name in spec_apis:
                         is_sink_node = True
 
             if is_sink_node:
-                line_number = source_code[: node.start_byte].count("\n") + 1
-                name = source_code[node.start_byte : node.end_byte]
+                line_number = get_node_start_line(node)
+                name = get_node_text(source_bytes, node)
                 sinks.append(Value(name, line_number, ValueLabel.SINK, file_path))
         return sinks

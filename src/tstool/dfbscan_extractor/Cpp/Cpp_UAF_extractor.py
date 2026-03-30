@@ -29,11 +29,11 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         "subscript_expression",
     )
 
-    def _node_text(self, source_code: str, node: tree_sitter.Node) -> str:
-        return source_code[node.start_byte : node.end_byte]
+    def _node_text(self, source_code: str | bytes, node: tree_sitter.Node) -> str:
+        return get_node_text(source_code, node)
 
-    def _line_number(self, source_code: str, node: tree_sitter.Node) -> int:
-        return source_code[: node.start_byte].count("\n") + 1
+    def _line_number(self, _source_code: str | bytes, node: tree_sitter.Node) -> int:
+        return get_node_start_line(node)
 
     def _strip_wrapping_parentheses(self, expr: str) -> str:
         expr = expr.strip()
@@ -70,7 +70,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
             current = named_children[-1]
         return current
 
-    def _is_free_call(self, node: tree_sitter.Node, source_code: str) -> bool:
+    def _is_free_call(self, node: tree_sitter.Node, source_code: str | bytes) -> bool:
         if node.type != "call_expression":
             return False
         for child in node.children:
@@ -80,7 +80,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         return False
 
     def _release_target_node(
-        self, node: tree_sitter.Node, source_code: str
+        self, node: tree_sitter.Node, source_code: str | bytes
     ) -> Optional[tree_sitter.Node]:
         if node.type == "delete_expression":
             named_children = list(node.named_children)
@@ -108,7 +108,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
     def _find_release_node(
         self,
         root_node: tree_sitter.Node,
-        source_code: str,
+        source_code: str | bytes,
         released_value: Value,
     ) -> Optional[tree_sitter.Node]:
         released_expr = self._normalize_expr(released_value.name)
@@ -136,7 +136,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         return sorted(nodes, key=lambda n: n.start_byte)
 
     def _extract_declared_name(
-        self, declarator_node: tree_sitter.Node, source_code: str
+        self, declarator_node: tree_sitter.Node, source_code: str | bytes
     ) -> str:
         identifiers = find_nodes_by_type(declarator_node, "identifier")
         if identifiers:
@@ -147,7 +147,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         return self._node_text(source_code, declarator_node)
 
     def _extract_assignment_event(
-        self, node: tree_sitter.Node, source_code: str
+        self, node: tree_sitter.Node, source_code: str | bytes
     ) -> Optional[tuple[int, int, str, str]]:
         named_children = list(node.named_children)
         if node.type == "assignment_expression":
@@ -200,7 +200,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
     def _build_live_aliases_at_release(
         self,
         root_node: tree_sitter.Node,
-        source_code: str,
+        source_code: str | bytes,
         release_node: tree_sitter.Node,
         released_expr: str,
     ) -> set[str]:
@@ -216,7 +216,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         return live_aliases
 
     def _matches_released_object(
-        self, node: tree_sitter.Node, source_code: str, live_aliases: set[str]
+        self, node: tree_sitter.Node, source_code: str | bytes, live_aliases: set[str]
     ) -> bool:
         if not live_aliases:
             return False
@@ -250,22 +250,23 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
     def extract_sources(self, function: Function) -> List[Value]:
         root_node = function.parse_tree_root_node
         source_code = self.ts_analyzer.code_in_files[function.file_path]
+        source_bytes = to_source_bytes(source_code)
         file_path = function.file_path
 
         sources: List[Value] = []
         for node in self._iter_release_nodes(root_node):
-            target_node = self._release_target_node(node, source_code)
+            target_node = self._release_target_node(node, source_bytes)
             if target_node is None:
                 continue
 
-            target_name = self._node_text(source_code, target_node).strip()
+            target_name = self._node_text(source_bytes, target_node).strip()
             if not target_name:
                 continue
 
             sources.append(
                 Value(
                     target_name,
-                    self._line_number(source_code, target_node),
+                    self._line_number(source_bytes, target_node),
                     ValueLabel.SRC,
                     file_path,
                 )
@@ -279,6 +280,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         """
         root_node = function.parse_tree_root_node
         source_code = self.ts_analyzer.code_in_files[function.file_path]
+        source_bytes = to_source_bytes(source_code)
         file_path = function.file_path
 
         sinks: List[Value] = []
@@ -287,8 +289,8 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
                 continue
             sinks.append(
                 Value(
-                    self._node_text(source_code, node),
-                    self._line_number(source_code, node),
+                    self._node_text(source_bytes, node),
+                    self._line_number(source_bytes, node),
                     ValueLabel.SINK,
                     file_path,
                 )
@@ -305,13 +307,14 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
         """
         root_node = function.parse_tree_root_node
         source_code = self.ts_analyzer.code_in_files[function.file_path]
+        source_bytes = to_source_bytes(source_code)
         file_path = function.file_path
-        release_node = self._find_release_node(root_node, source_code, released_value)
+        release_node = self._find_release_node(root_node, source_bytes, released_value)
         if release_node is None:
             return []
 
         live_aliases = self._build_live_aliases_at_release(
-            root_node, source_code, release_node, released_value.name
+            root_node, source_bytes, release_node, released_value.name
         )
 
         sinks: List[Value] = []
@@ -329,20 +332,20 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
 
         for _, event_type, node in events:
             if event_type == "assign":
-                event = self._extract_assignment_event(node, source_code)
+                event = self._extract_assignment_event(node, source_bytes)
                 if event is None:
                     continue
                 _, _, lhs, rhs = event
                 self._apply_assignment_to_aliases(live_aliases, lhs, rhs)
                 continue
 
-            if not self._matches_released_object(node, source_code, live_aliases):
+            if not self._matches_released_object(node, source_bytes, live_aliases):
                 continue
 
             sinks.append(
                 Value(
-                    self._node_text(source_code, node),
-                    self._line_number(source_code, node),
+                    self._node_text(source_bytes, node),
+                    self._line_number(source_bytes, node),
                     ValueLabel.SINK,
                     file_path,
                 )

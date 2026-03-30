@@ -209,7 +209,7 @@ class TSAnalyzer(ABC):
         (name, start_line_number, end_line_number, function_node) = raw_data
         file_name = self.functionToFile[function_id]
         file_content = self.fileContentDic[file_name]
-        function_code = file_content[function_node.start_byte : function_node.end_byte]
+        function_code = get_node_text(file_content, function_node)
         current_function = Function(
             function_id,
             name,
@@ -617,8 +617,8 @@ class TSAnalyzer(ABC):
         :return: The output value.
         """
         file_code = self.code_in_files[current_function.file_path]
-        name = file_code[call_site_node.start_byte : call_site_node.end_byte]
-        line_number = file_code[: call_site_node.start_byte].count("\n") + 1
+        name = get_node_text(file_code, call_site_node)
+        line_number = get_node_start_line(call_site_node)
         output_value = Value(
             name, line_number, ValueLabel.OUT, current_function.file_path, -1
         )
@@ -740,14 +740,8 @@ class TSAnalyzer(ABC):
                 continue
             all_nodes = find_all_nodes(function.parse_tree_root_node)
             for node in all_nodes:
-                start_line = (
-                    function.function_code[: node.start_byte].count("\n")
-                    + function.start_line_number
-                )
-                end_line = (
-                    function.function_code[: node.end_byte].count("\n")
-                    + function.start_line_number
-                )
+                start_line = get_node_start_line(node)
+                end_line = get_node_end_line(node)
                 if start_line == end_line == line_number:
                     code_node_list.append((function.function_code, node))
         return code_node_list
@@ -806,3 +800,41 @@ def find_nodes_by_type(root_node: Node, node_type: str, k=0) -> List[Node]:
     for child_node in root_node.children:
         nodes.extend(find_nodes_by_type(child_node, node_type, k + 1))
     return nodes
+
+
+def to_source_bytes(source_code: str | bytes) -> bytes:
+    """
+    Convert source text to UTF-8 bytes so tree-sitter byte offsets remain valid
+    even when the file contains non-ASCII characters.
+    """
+    if isinstance(source_code, bytes):
+        return source_code
+    return source_code.encode("utf8")
+
+
+def slice_source_text(source_code: str | bytes, start_byte: int, end_byte: int) -> str:
+    """
+    Slice source text using UTF-8 byte offsets produced by tree-sitter.
+    """
+    return to_source_bytes(source_code)[start_byte:end_byte].decode("utf8")
+
+
+def get_node_text(source_code: str | bytes, node: Node) -> str:
+    """
+    Return the exact source text covered by a tree-sitter node.
+    """
+    return slice_source_text(source_code, node.start_byte, node.end_byte)
+
+
+def get_node_start_line(node: Node) -> int:
+    """
+    Return the 1-based start line number of a node.
+    """
+    return node.start_point[0] + 1
+
+
+def get_node_end_line(node: Node) -> int:
+    """
+    Return the 1-based end line number of a node.
+    """
+    return node.end_point[0] + 1
