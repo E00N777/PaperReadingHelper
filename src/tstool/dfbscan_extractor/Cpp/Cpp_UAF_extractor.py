@@ -7,6 +7,63 @@ from tstool.analyzer.Cpp_TS_analyzer import *
 from ..dfbscan_extractor import *
 
 
+GENERIC_UAF_RELEASE_CALL_ARGUMENT_INDEXES = {
+    "free": 0,
+    "ngx_destroy_black_list_link": 0,
+}
+
+# High-confidence Net-SNMP deallocation wrappers/macros. Keep this list focused
+# on calls whose target object's lifetime ends at the call site.
+NETSNMP_UAF_RELEASE_CALLS = (
+    "SNMP_FREE",
+    "free_zero",
+    "netsnmp_free",
+    "snmp_free_pdu",
+    "snmp_free_var",
+    "snmp_free_varbind",
+    "netsnmp_transport_free",
+    "netsnmp_table_data_delete_row",
+    "netsnmp_free_delegated_cache",
+    "free_agent_snmp_session",
+    "netsnmp_remove_and_free_agent_snmp_session",
+    "netsnmp_free_agent_request_info",
+    "netsnmp_handler_free",
+    "netsnmp_handler_registration_free",
+    "netsnmp_free_all_list_data",
+    "netsnmp_table_registration_info_free",
+    "netsnmp_cache_free",
+    "netsnmp_directory_container_free",
+    "netsnmp_access_arp_container_free",
+    "netsnmp_access_arp_entry_free",
+    "netsnmp_access_defaultrouter_container_free",
+    "netsnmp_access_defaultrouter_entry_free",
+    "netsnmp_access_interface_container_free",
+    "netsnmp_access_interface_entry_free",
+    "netsnmp_access_ipaddress_container_free",
+    "netsnmp_access_ipaddress_entry_free",
+    "netsnmp_access_route_container_free",
+    "netsnmp_access_route_entry_free",
+    "netsnmp_access_scopezone_container_free",
+    "netsnmp_access_scopezone_entry_free",
+    "netsnmp_access_systemstats_container_free",
+    "netsnmp_access_systemstats_entry_free",
+    "netsnmp_access_tcpconn_container_free",
+    "netsnmp_access_tcpconn_entry_free",
+    "netsnmp_access_udp_endpoint_container_free",
+    "netsnmp_access_udp_endpoint_entry_free",
+    "netsnmp_swinst_container_free",
+    "netsnmp_swinst_entry_free",
+    "netsnmp_swrun_container_free",
+    "netsnmp_swrun_entry_free",
+    "usm_free_usmStateReference",
+)
+
+UAF_RELEASE_CALL_ARGUMENT_INDEXES = {
+    **GENERIC_UAF_RELEASE_CALL_ARGUMENT_INDEXES,
+    **{name: 0 for name in NETSNMP_UAF_RELEASE_CALLS},
+}
+
+
 class Cpp_UAF_Extractor(DFBScanExtractor):
     """
     UAF extraction for C/C++.
@@ -22,7 +79,7 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
     lifetime ended, instead of the free/delete statement syntax.
     """
 
-    FREE_FUNCTIONS = {"free", "ngx_destroy_black_list_link"}
+    RELEASE_CALL_ARGUMENT_INDEXES = UAF_RELEASE_CALL_ARGUMENT_INDEXES
     UAF_SINK_NODE_TYPES = (
         "pointer_expression",
         "field_expression",
@@ -70,14 +127,16 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
             current = named_children[-1]
         return current
 
-    def _is_free_call(self, node: tree_sitter.Node, source_code: str | bytes) -> bool:
+    def _release_call_argument_index(
+        self, node: tree_sitter.Node, source_code: str | bytes
+    ) -> Optional[int]:
         if node.type != "call_expression":
-            return False
+            return None
         for child in node.children:
             if child.type == "identifier":
                 name = self._node_text(source_code, child)
-                return name in self.FREE_FUNCTIONS
-        return False
+                return self.RELEASE_CALL_ARGUMENT_INDEXES.get(name)
+        return None
 
     def _release_target_node(
         self, node: tree_sitter.Node, source_code: str | bytes
@@ -88,16 +147,17 @@ class Cpp_UAF_Extractor(DFBScanExtractor):
                 return None
             return self._unwrap_source_expr(named_children[-1])
 
-        if not self._is_free_call(node, source_code):
+        release_arg_index = self._release_call_argument_index(node, source_code)
+        if release_arg_index is None:
             return None
 
         for child in node.children:
             if child.type != "argument_list":
                 continue
             named_children = list(child.named_children)
-            if not named_children:
+            if len(named_children) <= release_arg_index:
                 return None
-            return self._unwrap_source_expr(named_children[0])
+            return self._unwrap_source_expr(named_children[release_arg_index])
         return None
 
     def _iter_release_nodes(self, root_node: tree_sitter.Node) -> List[tree_sitter.Node]:

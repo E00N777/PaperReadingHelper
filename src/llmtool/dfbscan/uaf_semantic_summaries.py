@@ -5,10 +5,13 @@ from memory.syntactic.function import Function
 
 
 COMMON_UAF_API_SUMMARIES = {
+    "SNMP_FREE": "Frees the pointed heap object and writes NULL back to the same lvalue. A later use of that variable requires a re-assignment first.",
     "strdup": "Returns a freshly allocated copy of the input string. Freeing the original pointer after strdup is normally not UAF.",
     "strndup": "Returns a freshly allocated copy of the input string prefix. The returned object is independent from the source buffer.",
     "memdup": "Duplicates the source buffer into new heap storage. Original and duplicate have separate ownership.",
+    "snmp_clone_mem": "Allocates a fresh destination buffer and copies the source bytes into it. Source and destination do not share ownership.",
     "snmp_duplicate_objid": "Duplicates the input OID buffer into new storage. Freeing the original object afterward is normally safe.",
+    "netsnmp_strdup_and_null": "Allocates a new null-terminated copy of the input bytes. The returned buffer has independent ownership from the source.",
     "netsnmp_view_create": "Copies viewName and viewSubtree into the internal VACM entry. Temporary caller-owned parse buffers may be freed after the call.",
     "netsnmp_create_data_list": "Wraps a caller-provided data pointer and free callback in a list node. Holder cleanup and payload cleanup are distinct concepts.",
     "netsnmp_table_data_delete_row": "Frees the row container but returns row->data to the caller. Later use of the returned payload is not use-after-free of the row object.",
@@ -21,6 +24,7 @@ GENERIC_UAF_LIFECYCLE_SUMMARIES = [
     "If a cleanup branch frees resources and immediately returns, later uses on a different branch do not form a valid UAF path.",
     "If a function deep-copies an input object into internal storage, freeing the temporary input buffer afterward is usually safe.",
     "Freeing a holder/container object is different from freeing its detached payload. Returning the payload after freeing only the container is not UAF by itself.",
+    "If a deallocation macro also nulls the original variable, a later dereference of that same variable requires an intervening re-assignment.",
 ]
 
 
